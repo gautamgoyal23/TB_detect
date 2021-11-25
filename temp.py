@@ -1,4 +1,5 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException,Depends
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from PIL import Image
 from pydantic import BaseModel
 from tensorflow.keras.models import load_model
@@ -6,12 +7,12 @@ from typing import List
 import io
 import numpy as np
 import sys
-
+import secrets
 filepath = './tb_detector.h5'
 model = load_model(filepath, compile = True)
 
 input_shape = model.layers[0].input_shape
-
+security = HTTPBasic()
 app = FastAPI()
 
 class Prediction(BaseModel):
@@ -19,13 +20,22 @@ class Prediction(BaseModel):
   contenttype: str
   prediction: str
   likely_class: int
-
+def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(credentials.username, "stanleyjobson")
+    correct_password = secrets.compare_digest(credentials.password, "swordfish")
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 @app.get('/')
 def root_route():
   return { 'error': 'Use GET /prediction instead of the root route!' }
 
 @app.post('/prediction/', response_model=Prediction)
-async def prediction_route(file: UploadFile = File(...)):
+async def prediction_route(username: str = Depends(get_current_username),file: UploadFile = File(...)):
 
   if file.content_type.startswith('image/') is False:
     raise HTTPException(status_code=400, detail=f'File \'{file.filename}\' is not an image.')
